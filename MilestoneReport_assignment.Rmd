@@ -1,0 +1,226 @@
+---
+title: "Data Science Capstone_Milestone Report"
+output: html_document
+date: '2022-07-19'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary of project
+
+This is the Milestone Report for the Coursera Data Science Capstone project. The goal of the capstone project is to create a predictive text model using a large text corpus of documents as training data. Natural language processing techniques will be used to perform the analysis and build the predictive model.
+
+This Milestone Report describes the major features of the data with the exploratory data analysis and summarizes. To get started with the Milestone Report the Coursera Swiftkey Dataset has downloaded. Finally, the plans for creating the predictive model(s) and a Shiny App as data product has explained.
+
+
+```{r}
+# Loading Libraries
+library(tm)
+library(stringi)
+library(RWeka)
+library(dplyr)
+library(kableExtra)
+library(SnowballC)
+library(ggplot2)
+```
+## Download data and load files
+
+```{r}
+DataUrl <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+DataFile <- "Newdata/Coursera-SwiftKey.zip"
+if (!file.exists('Newdata')) {
+    dir.create('Newdata')
+}
+if (!file.exists("Newdata/final/en_US")) {
+    tempFile <- tempfile()
+    download.file(DataUrl, tempFile)
+    unzip(tempFile, exdir = "Newdata")
+    unlink(tempFile)
+}
+```
+
+## Summary of data
+
+The Coursera Swiftkey Dataset contains following three sources of text data:
+
+1. Blogs
+2. News
+3. Twitter
+
+The provided text data are provided in four different languages. This project will only focus on the English corpora.
+
+Here the number of lines, number of characters, and number of words for each of the 3 datasets (Blog, News and Twitter) has determined. Besides, the code calculates the number of words per line. 
+
+```{r}
+#Loading Files and show summaries
+blogsCon <- file(paste0("Newdata/final/en_US/en_US.blogs.txt"), "r")
+blogs <- readLines(blogsCon, encoding="UTF-8", skipNul = TRUE)
+close(blogsCon)
+
+newsCon <- file(paste0("Newdata/final/en_US/en_US.news.txt"), "r")
+news <- readLines(newsCon, encoding="UTF-8", skipNul = TRUE)
+close(newsCon)
+
+twitterCon <- file(paste0("Newdata/final/en_US/en_US.twitter.txt"), "r")
+twitter <- readLines(twitterCon, encoding="UTF-8", skipNul = TRUE)
+close(twitterCon)
+
+# Create stats of files
+WPL <- sapply(list(blogs,news,twitter),function(x)
+  summary(stri_count_words(x))[c('Min.','Mean','Max.')])
+rownames(WPL) <- c('WPL_Min','WPL_Mean','WPL_Max')
+rawstats <- data.frame(
+  File = c("blogs","news","twitter"), 
+  t(rbind(sapply(list(blogs,news,twitter),stri_stats_general),
+          TotalWords = sapply(list(blogs,news,twitter),stri_stats_latex)[4,],
+          WPL))
+)
+# Show stats in table
+kable(rawstats) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+## Data sampling
+
+The data files are very big, therefor, here only 1% of every file has considered as sample.
+Remove all non-English characters and then compile a sample data set.
+
+```{r}
+# Sampling the data
+set.seed(123)
+data.sample <- c(sample(blogs, length(blogs) * 0.01),
+                 sample(news, length(news) * 0.01),
+                 sample(twitter, length(twitter) * 0.01))
+saveRDS(data.sample, 'sample.rds')
+
+# Remove the object that are not used in analysis.
+rm(blogs, blogsCon, data.sample, news, newsCon, rawstats, twitter, 
+   twitterCon, WPL)
+```
+
+## Data processing
+
+After loading the sample RDS file (stored data sample), the code creates Corpus and starts to analyse the data with the tm Text mining library.
+
+Then the code cleans the sample and removes all numbers, convert text to lowercase, punctuation and stop words, for English language. 
+
+Later it performs stemming, which is a form that affixes can be attached. When the stemming is done, code removes the white spaces.
+
+```{r}
+# Load the RDS file
+data <- readRDS("sample.rds")
+
+# Create a Corpus
+docs <- VCorpus(VectorSource(data))
+
+# Remove undesired data and stop words in English (a, as, at, so, etc.)
+docs <- tm_map(docs, tolower)
+docs <- tm_map(docs, removePunctuation)
+docs <- tm_map(docs, removeNumbers)
+docs <- tm_map(docs, removeWords, stopwords("english"))
+
+
+docs <- tm_map(docs, stemDocument)
+
+
+docs <- tm_map(docs, stripWhitespace)
+```
+
+## Build N-Grams
+
+In Natural Language Processing (NLP),  *n*-gram is a contiguous sequence of n items from a given sequence of text or speech. 
+
+The items can be phonemes, syllables, letters, words or base pairs according to the application. The n-grams typically are collected from a text or speech corpus. 
+
+We next need to tokenize the clean Corpus (i.e., break the text up into words and short phrases) and construct a set of N-grams. We will start with the following three N-Grams:
+
+Unigram - A n-gram matrix containing individual words
+
+Bigram - A n-gram matrix containing two-word patterns
+
+Trigram - A n-gram matrix containing three-word patterns
+
+The RWeka package has used to develop the N-gram Tokenizersin order to create the unigram, bigram and trigram.
+
+Then, the code calculates the frequencies of the N-Grams and see what these look like.
+
+```{r}
+# Create Tokenization functions
+unigram <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1))
+bigram <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+trigram <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+
+# Create plain text format
+docs <- tm_map(docs, PlainTextDocument)
+```
+
+
+## Exploratory Analysis
+In this section code can find the most frequenzies of occurring words based on on unigram, bigram and trigrams.
+
+```{r}
+# Create TermDocumentMatrix with Tokenizations and Remove Sparse Terms
+freq1 <- removeSparseTerms(TermDocumentMatrix(docs, control = list(tokenize = unigram)), 0.9999)
+freq2 <- removeSparseTerms(TermDocumentMatrix(docs, control = list(tokenize = bigram)), 0.9999)
+freq3 <- removeSparseTerms(TermDocumentMatrix(docs, control = list(tokenize = trigram)), 0.9999)
+
+# Create frequencies 
+FreqUni <- sort(rowSums(as.matrix(freq1)), decreasing=TRUE)
+FreqBi <- sort(rowSums(as.matrix(freq2)), decreasing=TRUE)
+FreqTri <- sort(rowSums(as.matrix(freq3)), decreasing=TRUE)
+
+# Create Data Frames
+dfUni <- data.frame(term=names(FreqUni), freq=FreqUni)   
+dfBi <- data.frame(term=names(FreqBi), freq=FreqBi)   
+dfTri <- data.frame(term=names(FreqTri), freq=FreqTri)
+
+# Show head 10 of unigrams
+kable(head(dfUni,10))%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+# Plot head 20 of unigrams
+head(dfUni,20) %>% 
+  ggplot(aes(reorder(term,-freq), freq, fill=freq)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Unigrams") +
+  xlab("Unigrams Wrods") + ylab("Frequency") +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 90, hjust = 1))
+# Show head 10 of bigrams
+kable(head(dfBi,10))%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+# Plot head 20 of bigrams
+head(dfBi,20) %>% 
+  ggplot(aes(reorder(term,-freq), freq,fill=freq)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Bigrams") +
+  xlab("Bigrams Words") + ylab("Frequency") +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+# Show head 10 of trigrams
+kable(head(dfTri,10))%>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+# Plot head 20 of trigrams
+head(dfTri,20) %>% 
+  ggplot(aes(reorder(term,-freq), freq,fill=freq)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Trigrams") +
+  xlab("Trigrams Words") + ylab("Frequency") +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+```
+
+## Development Plan
+
+The developing plan of this capstone project would be to create predictive models(s) based on the N-gram Tokenization, and deploy it as a data product. The next steps are:
+
+1. Establish the predictive model(s) by using N-gram Tokenizations.
+2. Optimize the code for faster processing.
+3. Develop data product, a Shiny App, to make a next word prediction based on user inputs.
+4. Create a Slide Deck for pitching my algorithm and Shiny App.
+
