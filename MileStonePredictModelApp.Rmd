@@ -1,0 +1,138 @@
+---
+title: "Shiny Application and Reproducible Pitch"
+output: ioslides_presentation
+date: '2022-07-03'
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r echo=FALSE, include=FALSE}
+#Load libraries
+library('ggplot2')
+library('tidyverse')
+library('dplyr')
+library('shiny')
+library('rsconnect')
+install.packages('quanteda')
+install.packages('ngram')
+library('quanteda')
+library('ngram')
+```
+
+
+## Overview
+
+This assignment is related to 'Data Science Capstone -> Assignment: Milestone Report'.
+
+The goal of this project is just to display a developed prediction algorithm to predict next word(s) that user enter as input.
+
+## Data summary
+
+
+## Interactive model
+
+```{r}
+# UI Definition ----
+
+ui <- shinyUI(   fluidPage(
+  headerPanel("Next Word Prediction App"
+  ),
+  sidebarPanel(
+    h3("Introducton"),
+    p("This application predicts the next possible word in a phrase or sentence. To use it, simply type word(s) on the text field on the screen
+      and up to 4 possible next words will display in buttons below the field. Click on your intended match to add it to the field."),
+    p("The application uses natural language processing, namely, n-grams, Markov model, and Katz's back-off model to perform text prediction."),
+    p("This N-gram Word Predictor was developed as a capstone project to complete the Johns Hopkins data science Course.")
+    ),
+  mainPanel(
+    h3("Input"),
+    textInput("inputTxt", "Type in word(s) below:", width = "90%"),
+    uiOutput("words"),
+    br(),
+    wellPanel(
+      h4("Details"),
+      HTML("<p> Github Repository <a href='https://github.com/enrique1790/Data-Science-Captsone-Project' target='_blank'>https://github.com/enrique1790/Data-Science-Captsone-Project</a></p>"),
+      HTML("<p> Slide Deck Presentation  <a href='http://rpubs.com/enrique1790/444617' target='_blank'>http://rpubs.com/enrique1790/444617</a></p>"),
+      h4("Author:"),
+      p("Enrique Estrada")
+    )
+    
+  )
+))
+```
+
+```{r}
+getwd()
+```
+
+```{r}
+# Define server logic ----
+
+
+source("./Newdata/PredictionModel.R", local = TRUE)
+
+server <- shinyServer(
+  function(input, output, session){
+    
+    
+    prediction <- reactive({
+      nextWordPredictor(input$inputTxt)
+    })
+    
+    output$words <- renderUI( {
+      predictWords <- prediction()
+      assign('savedWords', predictWords, envir=.GlobalEnv)
+      n <- length(predictWords)
+      if( n > 0 && nchar(predictWords) > 0) {
+        buttons <- list()
+        for(i in 1:n) {
+          buttons <- list(buttons, list(
+            actionButton(inputId = paste("word",i, sep = ""), label =predictWords[i])
+          ))
+        }
+        
+        tagList(
+          buttons 
+        )
+      } else {
+        tagList("") 
+      }
+    })
+    
+    observeEvent(input$word1, {
+      updateTextInput(session, "inputTxt", value = paste(input$inputTxt, get('savedWords', envir=.GlobalEnv)[1]))
+    })
+    
+    observeEvent(input$word2, {
+      updateTextInput(session, "inputTxt", value = paste(input$inputTxt, get('savedWords', envir=.GlobalEnv)[2]))
+    })
+    
+    observeEvent(input$word3, {
+      updateTextInput(session, "inputTxt", value = paste(input$inputTxt, get('savedWords', envir=.GlobalEnv)[3]))
+    })
+    
+    observeEvent(input$word4, {
+      updateTextInput(session, "inputTxt", value = paste(input$inputTxt, get('savedWords', envir=.GlobalEnv)[4]))
+    })
+    
+  })
+
+```
+
+
+```{r}
+# Run the app ----
+shinyApp(ui = ui, server = server)
+```
+
+## The repository
+
+Check the following link for code of application:
+
+GitHub: https://github.com/NazaninFarzady/data-science-project-milestone-report
+RPubs: https://rpubs.com/NFarzady
+Shiny: 
+
